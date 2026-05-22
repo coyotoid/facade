@@ -1,3 +1,10 @@
+module type ENUM = sig
+  type t
+
+  val all : t list
+  val to_string : t -> string
+end
+
 type 'a decode = Error.path -> 'a Validate.t
 type ('a, 'ext) t = { enc : 'a -> 'ext Repr.t; dec : 'ext Repr.t -> 'a decode }
 
@@ -30,7 +37,7 @@ val option : ('a, 'ext) t -> ('a option, 'ext) t
 val list : ('a, 'ext) t -> ('a list, 'ext) t
 val object' : ('a, 'ext) t -> ((string * 'a) list, 'ext) t
 val pair : ('a, 'ext) t -> ('b, 'ext) t -> ('a * 'b, 'ext) t
-val enum : ('a * string) list -> ('a, 'b) t
+val enum : (module ENUM with type t = 'a) -> ('a, _) t
 val rec' : (('a, 'b) t -> ('a, 'b) t) -> ('a, 'b) t
 
 (* ... *)

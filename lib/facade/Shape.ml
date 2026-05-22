@@ -1,3 +1,10 @@
+module type ENUM = sig
+  type t
+
+  val all : t list
+  val to_string : t -> string
+end
+
 type 'a decode = Error.path -> 'a Validate.t
 type ('a, 'ext) t = { enc : 'a -> 'ext Repr.t; dec : 'ext Repr.t -> 'a decode }
 
@@ -183,22 +190,27 @@ let field_opt name shape repr =
   | Repr.Object fields -> field_opt_from_fields name shape fields
   | _ -> fail "expected object"
 
-let enum pairs =
-  let by_string = List.map (fun (a, s) -> (s, a)) pairs in
-  let valid = String.concat ", " (List.map snd pairs) in
+let enum (type a) (module E : ENUM with type t = a) : (a, _) t =
+  let pairs = List.map (fun v -> (v, E.to_string v)) E.all in
+  let strings = List.map snd pairs in
+  let rec check_unique = function
+    | a :: b :: _ when a = b ->
+        invalid_arg ("Shape.enum': duplicate string " ^ a)
+    | _ :: rest -> check_unique rest
+    | [] -> ()
+  in
+  check_unique (List.sort compare strings);
+  let by_string = List.map (fun (v, s) -> (s, v)) pairs in
+  let valid = "expected one of: " ^ String.concat ", " strings in
   {
-    enc =
-      (fun v ->
-        match List.find_opt (fun (a, _) -> a = v) pairs with
-        | Some (_, s) -> Repr.String s
-        | None -> invalid_arg "Shape.enum: value not present in declared cases");
+    enc = (fun v -> Repr.String (E.to_string v));
     dec =
       (function
       | Repr.String s -> (
           match List.assoc_opt s by_string with
-          | Some a -> return a
-          | None -> fail ("expected one of: " ^ valid))
-      | _ -> fail ("expected one of: " ^ valid));
+          | Some v -> return v
+          | None -> fail valid)
+      | _ -> fail valid);
   }
 
 let rec' f =
