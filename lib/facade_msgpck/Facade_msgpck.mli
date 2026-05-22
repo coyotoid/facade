@@ -1,7 +1,7 @@
 type ext =
   [ `Bytes of string
-  | `Ext of int * string
-  | `Map of (Msgpck.t * Msgpck.t) list ]
+  | `Msgpack_ext of int * string
+  | `Msgpack_map of (Msgpck.t * Msgpck.t) list ]
 
 type t = Msgpck.t
 

@@ -1,7 +1,7 @@
 type ext =
   [ `Bytes of string
-  | `Ext of int * string
-  | `Map of (Msgpck.t * Msgpck.t) list ]
+  | `Msgpack_ext of int * string
+  | `Msgpack_map of (Msgpck.t * Msgpck.t) list ]
 
 type t = Msgpck.t
 
@@ -18,8 +18,8 @@ let to_msgpck : ext Facade.Repr.t -> Msgpck.t =
     | Object fields ->
         Msgpck.Map (List.map (fun (k, v) -> (Msgpck.String k, go v)) fields)
     | Ext (`Bytes b) -> Msgpck.Bytes b
-    | Ext (`Ext (t, d)) -> Msgpck.Ext (t, d)
-    | Ext (`Map pairs) -> Msgpck.Map pairs
+    | Ext (`Msgpack_ext (t, d)) -> Msgpck.Ext (t, d)
+    | Ext (`Msgpack_map pairs) -> Msgpck.Map pairs
   in
   go
 
@@ -39,7 +39,7 @@ let of_msgpck : Msgpck.t -> ext Facade.Repr.t =
     | Msgpck.Float f -> Float f
     | Msgpck.String s -> String s
     | Msgpck.Bytes b -> Ext (`Bytes b)
-    | Msgpck.Ext (t, d) -> Ext (`Ext (t, d))
+    | Msgpck.Ext (t, d) -> Ext (`Msgpack_ext (t, d))
     | Msgpck.List xs -> List (List.map go xs)
     | Msgpck.Map pairs when List.for_all is_string_key pairs ->
         Object
@@ -47,7 +47,7 @@ let of_msgpck : Msgpck.t -> ext Facade.Repr.t =
              (fun (k, v) ->
                match k with Msgpck.String s -> (s, go v) | _ -> assert false)
              pairs)
-    | Msgpck.Map pairs -> Ext (`Map pairs)
+    | Msgpck.Map pairs -> Ext (`Msgpack_map pairs)
   in
   go
 

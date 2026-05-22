@@ -8,7 +8,7 @@ homepage: "https://codeberg.org/lobo/shape"
 bug-reports: "https://codeberg.org/lobo/shape/issues"
 depends: [
   "dune" {>= "3.21"}
-  "shape"
+  "facade"
   "yojson" {>= "3.0.0"}
   "ounit2" {with-test}
   "odoc" {with-doc}
