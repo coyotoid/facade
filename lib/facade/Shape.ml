@@ -30,8 +30,8 @@ module Syntax = struct
 end
 
 let at segment m = fun path -> m (path @ [ segment ])
-let encode codec v = codec.enc v
-let decode codec repr = codec.dec repr []
+let encode shape v = shape.enc v
+let decode shape repr = shape.dec repr []
 
 let null =
   {
@@ -72,14 +72,14 @@ let string =
     dec = (function String s -> return s | _ -> fail "expected string");
   }
 
-let option codec =
+let option shape =
   {
-    enc = (function None -> Null | Some x -> codec.enc x);
+    enc = (function None -> Null | Some x -> shape.enc x);
     dec =
       (function
       | Null -> return None
       | repr ->
-          let* x = codec.dec repr in
+          let* x = shape.dec repr in
           return @@ Some x);
   }
 
@@ -95,27 +95,27 @@ let collect_results ms path =
     (Validate.Valid []) ms
   |> Validate.map List.rev
 
-let list codec =
+let list shape =
   {
-    enc = (fun xs -> List (List.map codec.enc xs));
+    enc = (fun xs -> List (List.map shape.enc xs));
     dec =
       (function
       | List xs ->
-          List.mapi (fun i x -> at (Error.Index i) (codec.dec x)) xs
+          List.mapi (fun i x -> at (Error.Index i) (shape.dec x)) xs
           |> collect_results
       | _ -> fail "expected list");
   }
 
-let object' codec =
+let object' shape =
   {
     enc =
-      (fun pairs -> Object (List.map (fun (k, v) -> (k, codec.enc v)) pairs));
+      (fun pairs -> Object (List.map (fun (k, v) -> (k, shape.enc v)) pairs));
     dec =
       (function
       | Repr.Object fields ->
           List.map
             (fun (k, v) ->
-              let+ x = at (Error.Field k) (codec.dec v) in
+              let+ x = at (Error.Field k) (shape.dec v) in
               (k, x))
             fields
           |> collect_results
@@ -135,28 +135,30 @@ let pair ca cb =
       | _ -> fail "expected list");
   }
 
-let validate f codec =
+let validate f shape =
   {
-    enc = codec.enc;
+    enc = shape.enc;
     dec =
       (fun repr ->
-        let* x = codec.dec repr in
+        let* x = shape.dec repr in
         fun path ->
           match f x with
           | Ok () -> Validate.valid x
           | Error msg -> Validate.error { Error.path; message = msg });
   }
 
-let bimap ef df codec =
+let bimap ef df shape =
   {
-    enc = (fun x -> codec.enc (ef x));
+    enc = (fun x -> shape.enc (ef x));
     dec =
       (fun repr ->
-        let+ x = codec.dec repr in
+        let+ x = shape.dec repr in
         df x);
   }
 
-let field_from_fields name codec fields path =
+let conv = bimap
+
+let field_from_fields name shape fields path =
   match List.assoc_opt name fields with
   | None ->
       Validate.error
@@ -164,21 +166,21 @@ let field_from_fields name codec fields path =
           Error.path = path @ [ Error.Field name ];
           message = "missing field " ^ name;
         }
-  | Some v -> at (Error.Field name) (codec.dec v) path
+  | Some v -> at (Error.Field name) (shape.dec v) path
 
-let field name codec repr path =
+let field name shape repr path =
   match repr with
-  | Repr.Object fields -> field_from_fields name codec fields path
+  | Repr.Object fields -> field_from_fields name shape fields path
   | _ -> Validate.error { Error.path; message = "expected object" }
 
-let field_opt_from_fields name codec fields =
+let field_opt_from_fields name shape fields =
   match List.assoc_opt name fields with
   | None -> return None
-  | Some v -> at (Error.Field name) ((option codec).dec v)
+  | Some v -> at (Error.Field name) ((option shape).dec v)
 
-let field_opt name codec repr =
+let field_opt name shape repr =
   match repr with
-  | Repr.Object fields -> field_opt_from_fields name codec fields
+  | Repr.Object fields -> field_opt_from_fields name shape fields
   | _ -> fail "expected object"
 
 let enum pairs =
@@ -189,7 +191,7 @@ let enum pairs =
       (fun v ->
         match List.find_opt (fun (a, _) -> a = v) pairs with
         | Some (_, s) -> Repr.String s
-        | None -> assert false);
+        | None -> invalid_arg "Shape.enum: value not present in declared cases");
     dec =
       (function
       | Repr.String s -> (
@@ -200,13 +202,14 @@ let enum pairs =
   }
 
 let rec' f =
-  let enc = ref (fun _ -> assert false) in
-  let dec = ref (fun _ -> assert false) in
+  let proxy _ = failwith "Shape.rec': proxy used before construction" in
+  let enc = ref proxy in
+  let dec = ref proxy in
   let proxy = { enc = (fun x -> !enc x); dec = (fun r -> !dec r) } in
-  let codec = f proxy in
-  enc := codec.enc;
-  dec := codec.dec;
-  codec
+  let shape = f proxy in
+  enc := shape.enc;
+  dec := shape.dec;
+  shape
 
 type ('cons, 'record, 'ext) builder = {
   dec_fields : (string * 'ext Repr.t) list -> 'cons decode;
@@ -225,40 +228,42 @@ let add_field_name name b =
   if List.mem name b.names then invalid_arg ("duplicate record field " ^ name);
   name :: b.names
 
-let required name codec get b =
+let required name shape get b =
   {
     dec_fields =
       (fun fields ->
         let+ f = b.dec_fields fields
-        and+ v = field_from_fields name codec fields in
+        and+ v = field_from_fields name shape fields in
         f v);
     enc_fields =
-      (fun record -> (name, codec.enc (get record)) :: b.enc_fields record);
+      (fun record -> (name, shape.enc (get record)) :: b.enc_fields record);
     names = add_field_name name b;
   }
 
-let optional name codec get b =
+let optional name shape get b =
   {
     dec_fields =
       (fun fields ->
         let+ f = b.dec_fields fields
-        and+ v = field_opt_from_fields name codec fields in
+        and+ v = field_opt_from_fields name shape fields in
         f v);
     enc_fields =
       (fun record ->
-        (name, (option codec).enc (get record)) :: b.enc_fields record);
+        match get record with
+        | None -> b.enc_fields record
+        | Some v -> (name, shape.enc v) :: b.enc_fields record);
     names = add_field_name name b;
   }
 
-let default name codec default get b =
+let default name shape default get b =
   {
     dec_fields =
       (fun fields ->
         let+ f = b.dec_fields fields
-        and+ v = field_opt_from_fields name codec fields in
+        and+ v = field_opt_from_fields name shape fields in
         f (Option.value ~default v));
     enc_fields =
-      (fun record -> (name, codec.enc (get record)) :: b.enc_fields record);
+      (fun record -> (name, shape.enc (get record)) :: b.enc_fields record);
     names = add_field_name name b;
   }
 

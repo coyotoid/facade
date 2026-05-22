@@ -52,7 +52,7 @@ let of_msgpck : Msgpck.t -> ext Facade.Repr.t =
   go
 
 let encode : ('a, ext) Facade.Shape.t -> 'a -> Msgpck.t =
- fun codec x -> to_msgpck (codec.enc x)
+ fun shape x -> to_msgpck (shape.enc x)
 
 let decode : ('a, ext) Facade.Shape.t -> Msgpck.t -> 'a Facade.Validate.t =
- fun codec m -> Facade.Shape.decode codec (of_msgpck m)
+ fun shape m -> Facade.Shape.decode shape (of_msgpck m)

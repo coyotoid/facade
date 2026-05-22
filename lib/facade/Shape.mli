@@ -19,7 +19,7 @@ end
 val encode : ('a, 'ext) t -> 'a -> 'ext Repr.t
 val decode : ('a, 'ext) t -> 'ext Repr.t -> 'a Validate.t
 
-(* codecs *)
+(* shapes *)
 val null : (unit, _) t
 val bool : (bool, _) t
 val int : (int, _) t
@@ -36,12 +36,13 @@ val rec' : (('a, 'b) t -> ('a, 'b) t) -> ('a, 'b) t
 (* ... *)
 val validate : ('a -> (unit, string) result) -> ('a, 'b) t -> ('a, 'b) t
 val bimap : ('a -> 'b) -> ('b -> 'a) -> ('b, 'c) t -> ('a, 'c) t
+val conv : ('a -> 'b) -> ('b -> 'a) -> ('b, 'c) t -> ('a, 'c) t
 
 (* low-level object primitives *)
 val field : string -> ('a, 'ext) t -> 'ext Repr.t -> 'a decode
 val field_opt : string -> ('a, 'ext) t -> 'ext Repr.t -> 'a option decode
 
-(* codec builder *)
+(* shape builder *)
 type ('cons, 'record, 'ext) builder
 
 val record : 'cons -> ('cons, 'record, 'ext) builder

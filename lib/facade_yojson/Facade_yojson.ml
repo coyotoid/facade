@@ -35,7 +35,7 @@ let of_yojson : Yojson.Safe.t -> ext Facade.Repr.t =
   go
 
 let encode : ('a, ext) Facade.Shape.t -> 'a -> Yojson.Safe.t =
- fun codec x -> to_yojson (codec.enc x)
+ fun shape x -> to_yojson (shape.enc x)
 
 let decode : ('a, ext) Facade.Shape.t -> Yojson.Safe.t -> 'a Facade.Validate.t =
- fun codec json -> Facade.Shape.decode codec (of_yojson json)
+ fun shape json -> Facade.Shape.decode shape (of_yojson json)
