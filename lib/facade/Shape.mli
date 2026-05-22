@@ -5,8 +5,8 @@ module type ENUM = sig
   val to_string : t -> string
 end
 
-type 'a decode = Error.path -> 'a Validate.t
-type ('a, 'ext) t = { enc : 'a -> 'ext Repr.t; dec : 'ext Repr.t -> 'a decode }
+type 'a decode
+type ('a, 'ext) t
 
 val return : 'a -> 'a decode
 val fail : string -> 'a decode
