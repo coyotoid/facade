@@ -4,8 +4,8 @@ synopsis: "MessagePack backend for facade"
 maintainer: ["Javier B. Torres <lobo@quiltro.org>"]
 authors: ["Javier B. Torres <lobo@quiltro.org>"]
 license: "MIT"
-homepage: "https://codeberg.org/lobo/shape"
-bug-reports: "https://codeberg.org/lobo/shape/issues"
+homepage: "https://codeberg.org/lobo/facade"
+bug-reports: "https://codeberg.org/lobo/facade/issues"
 depends: [
   "dune" {>= "3.21"}
   "facade"
@@ -27,5 +27,5 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://codeberg.org/lobo/shape.git"
+dev-repo: "git+https://codeberg.org/lobo/facade.git"
 x-maintenance-intent: ["(latest)"]

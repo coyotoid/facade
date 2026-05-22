@@ -211,10 +211,19 @@ let rec' f =
 type ('cons, 'record, 'ext) builder = {
   dec_fields : (string * 'ext Repr.t) list -> 'cons decode;
   enc_fields : 'record -> (string * 'ext Repr.t) list;
+  names : string list;
 }
 
 let record cons =
-  { dec_fields = (fun _ -> return cons); enc_fields = (fun _ -> []) }
+  {
+    dec_fields = (fun _ -> return cons);
+    enc_fields = (fun _ -> []);
+    names = [];
+  }
+
+let add_field_name name b =
+  if List.mem name b.names then invalid_arg ("duplicate record field " ^ name);
+  name :: b.names
 
 let required name codec get b =
   {
@@ -225,6 +234,7 @@ let required name codec get b =
         f v);
     enc_fields =
       (fun record -> (name, codec.enc (get record)) :: b.enc_fields record);
+    names = add_field_name name b;
   }
 
 let optional name codec get b =
@@ -237,6 +247,7 @@ let optional name codec get b =
     enc_fields =
       (fun record ->
         (name, (option codec).enc (get record)) :: b.enc_fields record);
+    names = add_field_name name b;
   }
 
 let default name codec default get b =
@@ -248,6 +259,7 @@ let default name codec default get b =
         f (Option.value ~default v));
     enc_fields =
       (fun record -> (name, codec.enc (get record)) :: b.enc_fields record);
+    names = add_field_name name b;
   }
 
 let seal b =

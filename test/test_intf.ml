@@ -110,6 +110,20 @@ let test_default_record_rejects_non_object_msgpck _ =
     (module Facade_msgpck)
     shape (Msgpck.String "oops") "expected object"
 
+let test_duplicate_required_field_rejected _ =
+  assert_raises (Invalid_argument "duplicate record field n") (fun () ->
+      ignore
+        Shape.(
+          record (fun n m -> (n, m))
+          |> required "n" int fst |> required "n" int snd |> seal))
+
+let test_duplicate_mixed_field_rejected _ =
+  assert_raises (Invalid_argument "duplicate record field n") (fun () ->
+      ignore
+        Shape.(
+          record (fun n m -> (n, m))
+          |> optional "n" int fst |> default "n" int 0 snd |> seal))
+
 let test_wrong_type_yojson _ =
   expect_one_error_message
     (module Facade_yojson)
@@ -152,6 +166,10 @@ let () =
                   >:: test_default_record_rejects_non_object_yojson;
                   "default record rejects non-object / msgpck"
                   >:: test_default_record_rejects_non_object_msgpck;
+                  "duplicate required field rejected"
+                  >:: test_duplicate_required_field_rejected;
+                  "duplicate mixed field rejected"
+                  >:: test_duplicate_mixed_field_rejected;
                   "wrong type / yojson" >:: test_wrong_type_yojson;
                   "wrong type / msgpck" >:: test_wrong_type_msgpck;
                 ];

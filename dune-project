@@ -5,7 +5,7 @@
 (generate_opam_files true)
 
 (source
- (codeberg lobo/shape))
+ (codeberg lobo/facade))
 
 (authors "Javier B. Torres <lobo@quiltro.org>")
 
