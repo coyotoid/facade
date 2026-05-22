@@ -13,6 +13,7 @@ pkgs.mkShell {
     pkgs.ocamlPackages.findlib
     pkgs.ocamlPackages.ocaml-lsp
     pkgs.ocamlPackages.ocamlformat
+    pkgs.ocamlPackages.odoc
     pkgs.ocamlPackages.merlin
     pkgs.ocamlPackages.ocp-indent
     pkgs.ocamlPackages.yojson

@@ -5,8 +5,8 @@ module type ENUM = sig
   val to_string : t -> string
 end
 
-type 'a decode = Error.path -> 'a Validate.t
-type ('a, 'ext) t = { enc : 'a -> 'ext Repr.t; dec : 'ext Repr.t -> 'a decode }
+type 'a field = Error.path -> 'a Validate.t
+type ('a, 'ext) t = { enc : 'a -> 'ext Repr.t; dec : 'ext Repr.t -> 'a field }
 
 let return x = fun _ -> Validate.pure x
 let fail message = fun path -> Validate.error { Error.path; message }
@@ -213,18 +213,20 @@ let enum (type a) (module E : ENUM with type t = a) : (a, _) t =
       | _ -> fail valid);
   }
 
+let defer lz =
+  {
+    enc = (fun x -> (Lazy.force lz).enc x);
+    dec = (fun r -> (Lazy.force lz).dec r);
+  }
+
 let rec' f =
-  let proxy _ = failwith "Shape.rec': proxy used before construction" in
-  let enc = ref proxy in
-  let dec = ref proxy in
-  let proxy = { enc = (fun x -> !enc x); dec = (fun r -> !dec r) } in
-  let shape = f proxy in
-  enc := shape.enc;
-  dec := shape.dec;
-  shape
+  let rec lz = lazy (f (defer lz)) in
+  Lazy.force lz
+
+let custom ~encode ~decode = { enc = encode; dec = decode }
 
 type ('cons, 'record, 'ext) builder = {
-  dec_fields : (string * 'ext Repr.t) list -> 'cons decode;
+  dec_fields : (string * 'ext Repr.t) list -> 'cons field;
   enc_fields : 'record -> (string * 'ext Repr.t) list;
   names : string list;
 }
