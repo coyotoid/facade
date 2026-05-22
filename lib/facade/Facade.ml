@@ -8,12 +8,12 @@ type 'ext repr = 'ext Repr.t
 type 'a validate = 'a Validate.t
 type error = Error.t
 
-module type INTF = Intf.FACADE
+module type INTF = Intf.BACKEND
 
 let encode (type t ext) (module M : INTF with type t = t and type ext = ext)
     (shape : ('a, ext) shape) (x : 'a) : t =
-  M.encode shape x
+  M.of_repr (Shape.encode shape x)
 
 let decode (type t ext) (module M : INTF with type t = t and type ext = ext)
     (shape : ('a, ext) shape) (x : t) : 'a validate =
-  M.decode shape x
+  Shape.decode shape (M.to_repr x)

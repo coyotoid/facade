@@ -5,7 +5,7 @@ type ext =
 
 type t = Msgpck.t
 
-let to_msgpck : ext Facade.Repr.t -> Msgpck.t =
+let of_repr : ext Facade.Repr.t -> Msgpck.t =
   let rec go =
     let open Facade.Repr in
     function
@@ -23,7 +23,7 @@ let to_msgpck : ext Facade.Repr.t -> Msgpck.t =
   in
   go
 
-let of_msgpck : Msgpck.t -> ext Facade.Repr.t =
+let to_repr : Msgpck.t -> ext Facade.Repr.t =
   let is_string_key = function Msgpck.String _, _ -> true | _ -> false in
   let rec go =
     let open Facade.Repr in
@@ -50,9 +50,3 @@ let of_msgpck : Msgpck.t -> ext Facade.Repr.t =
     | Msgpck.Map pairs -> Ext (`Msgpack_map pairs)
   in
   go
-
-let encode : ('a, ext) Facade.Shape.t -> 'a -> Msgpck.t =
- fun shape x -> to_msgpck (shape.enc x)
-
-let decode : ('a, ext) Facade.Shape.t -> Msgpck.t -> 'a Facade.Validate.t =
- fun shape m -> Facade.Shape.decode shape (of_msgpck m)

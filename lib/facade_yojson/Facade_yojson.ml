@@ -1,7 +1,7 @@
 type ext = unit
 type t = Yojson.Safe.t
 
-let to_yojson : ext Facade.Repr.t -> Yojson.Safe.t =
+let of_repr : ext Facade.Repr.t -> Yojson.Safe.t =
   let rec go =
     let open Facade.Repr in
     function
@@ -16,7 +16,7 @@ let to_yojson : ext Facade.Repr.t -> Yojson.Safe.t =
   in
   go
 
-let of_yojson : Yojson.Safe.t -> ext Facade.Repr.t =
+let to_repr : Yojson.Safe.t -> ext Facade.Repr.t =
   let rec go =
     let open Facade.Repr in
     function
@@ -33,9 +33,3 @@ let of_yojson : Yojson.Safe.t -> ext Facade.Repr.t =
     | `Variant (tag, Some v) -> List [ String tag; go v ]
   in
   go
-
-let encode : ('a, ext) Facade.Shape.t -> 'a -> Yojson.Safe.t =
- fun shape x -> to_yojson (shape.enc x)
-
-let decode : ('a, ext) Facade.Shape.t -> Yojson.Safe.t -> 'a Facade.Validate.t =
- fun shape json -> Facade.Shape.decode shape (of_yojson json)

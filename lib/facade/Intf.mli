@@ -1,7 +1,7 @@
-module type FACADE = sig
+module type BACKEND = sig
   type ext
   type t
 
-  val encode : ('a, ext) Shape.t -> 'a -> t
-  val decode : ('a, ext) Shape.t -> t -> 'a Validate.t
+  val of_repr : ext Repr.t -> t
+  val to_repr : t -> ext Repr.t
 end
