@@ -23,7 +23,7 @@
  (name facade-yojson)
  (synopsis "Yojson backend for facade")
  (depends
-  shape
+  facade
   (yojson (>= "3.0.0"))
   (ounit2 :with-test)))
 
