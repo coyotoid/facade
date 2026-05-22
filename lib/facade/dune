@@ -1,0 +1,4 @@
+(library
+ (public_name facade)
+ (name facade)
+ (modules_without_implementation Intf))

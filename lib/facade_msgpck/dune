@@ -1,0 +1,4 @@
+(library
+ (public_name facade-msgpck)
+ (name facade_msgpck)
+ (libraries facade msgpck))

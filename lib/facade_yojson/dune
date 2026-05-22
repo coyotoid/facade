@@ -1,0 +1,4 @@
+(library
+ (public_name facade-yojson)
+ (name facade_yojson)
+ (libraries facade yojson))
