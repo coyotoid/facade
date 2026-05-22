@@ -156,27 +156,30 @@ let bimap ef df codec =
         df x);
   }
 
-let find name = function
-  | Repr.Object fields -> List.assoc_opt name fields
-  | _ -> None
+let field_from_fields name codec fields path =
+  match List.assoc_opt name fields with
+  | None ->
+      Validate.error
+        {
+          Error.path = path @ [ Error.Field name ];
+          message = "missing field " ^ name;
+        }
+  | Some v -> at (Error.Field name) (codec.dec v) path
 
 let field name codec repr path =
   match repr with
-  | Repr.Object _ -> (
-      match find name repr with
-      | None ->
-          Validate.error
-            {
-              Error.path = path @ [ Error.Field name ];
-              message = "missing field " ^ name;
-            }
-      | Some v -> at (Error.Field name) (codec.dec v) path)
+  | Repr.Object fields -> field_from_fields name codec fields path
   | _ -> Validate.error { Error.path; message = "expected object" }
 
-let field_opt name codec repr =
-  match find name repr with
+let field_opt_from_fields name codec fields =
+  match List.assoc_opt name fields with
   | None -> return None
   | Some v -> at (Error.Field name) ((option codec).dec v)
+
+let field_opt name codec repr =
+  match repr with
+  | Repr.Object fields -> field_opt_from_fields name codec fields
+  | _ -> fail "expected object"
 
 let enum pairs =
   let by_string = List.map (fun (a, s) -> (s, a)) pairs in
@@ -206,18 +209,19 @@ let rec' f =
   codec
 
 type ('cons, 'record, 'ext) builder = {
-  dec_obj : 'ext Repr.t -> 'cons decode;
+  dec_fields : (string * 'ext Repr.t) list -> 'cons decode;
   enc_fields : 'record -> (string * 'ext Repr.t) list;
 }
 
 let record cons =
-  { dec_obj = (fun _ -> return cons); enc_fields = (fun _ -> []) }
+  { dec_fields = (fun _ -> return cons); enc_fields = (fun _ -> []) }
 
 let required name codec get b =
   {
-    dec_obj =
-      (fun repr ->
-        let+ f = b.dec_obj repr and+ v = field name codec repr in
+    dec_fields =
+      (fun fields ->
+        let+ f = b.dec_fields fields
+        and+ v = field_from_fields name codec fields in
         f v);
     enc_fields =
       (fun record -> (name, codec.enc (get record)) :: b.enc_fields record);
@@ -225,9 +229,10 @@ let required name codec get b =
 
 let optional name codec get b =
   {
-    dec_obj =
-      (fun repr ->
-        let+ f = b.dec_obj repr and+ v = field_opt name codec repr in
+    dec_fields =
+      (fun fields ->
+        let+ f = b.dec_fields fields
+        and+ v = field_opt_from_fields name codec fields in
         f v);
     enc_fields =
       (fun record ->
@@ -236,9 +241,10 @@ let optional name codec get b =
 
 let default name codec default get b =
   {
-    dec_obj =
-      (fun repr ->
-        let+ f = b.dec_obj repr and+ v = field_opt name codec repr in
+    dec_fields =
+      (fun fields ->
+        let+ f = b.dec_fields fields
+        and+ v = field_opt_from_fields name codec fields in
         f (Option.value ~default v));
     enc_fields =
       (fun record -> (name, codec.enc (get record)) :: b.enc_fields record);
@@ -247,5 +253,8 @@ let default name codec default get b =
 let seal b =
   {
     enc = (fun record -> Repr.Object (List.rev (b.enc_fields record)));
-    dec = (fun repr -> b.dec_obj repr);
+    dec =
+      (function
+      | Repr.Object fields -> b.dec_fields fields
+      | _ -> fail "expected object");
   }

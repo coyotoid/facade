@@ -86,6 +86,30 @@ let test_missing_field_msgpck _ =
     (module Facade_msgpck)
     shape (Msgpck.Map []) "missing field n"
 
+let test_optional_record_rejects_non_object_yojson _ =
+  let shape = Shape.(record Fun.id |> optional "n" int Fun.id |> seal) in
+  expect_one_error_message
+    (module Facade_yojson)
+    shape (`String "oops") "expected object"
+
+let test_optional_record_rejects_non_object_msgpck _ =
+  let shape = Shape.(record Fun.id |> optional "n" int Fun.id |> seal) in
+  expect_one_error_message
+    (module Facade_msgpck)
+    shape (Msgpck.String "oops") "expected object"
+
+let test_default_record_rejects_non_object_yojson _ =
+  let shape = Shape.(record Fun.id |> default "n" int 0 Fun.id |> seal) in
+  expect_one_error_message
+    (module Facade_yojson)
+    shape (`String "oops") "expected object"
+
+let test_default_record_rejects_non_object_msgpck _ =
+  let shape = Shape.(record Fun.id |> default "n" int 0 Fun.id |> seal) in
+  expect_one_error_message
+    (module Facade_msgpck)
+    shape (Msgpck.String "oops") "expected object"
+
 let test_wrong_type_yojson _ =
   expect_one_error_message
     (module Facade_yojson)
@@ -120,6 +144,14 @@ let () =
            >::: [
                   "missing field / yojson" >:: test_missing_field_yojson;
                   "missing field / msgpck" >:: test_missing_field_msgpck;
+                  "optional record rejects non-object / yojson"
+                  >:: test_optional_record_rejects_non_object_yojson;
+                  "optional record rejects non-object / msgpck"
+                  >:: test_optional_record_rejects_non_object_msgpck;
+                  "default record rejects non-object / yojson"
+                  >:: test_default_record_rejects_non_object_yojson;
+                  "default record rejects non-object / msgpck"
+                  >:: test_default_record_rejects_non_object_msgpck;
                   "wrong type / yojson" >:: test_wrong_type_yojson;
                   "wrong type / msgpck" >:: test_wrong_type_msgpck;
                 ];
