@@ -1,8 +1,8 @@
 open OUnit2
 open Facade
 
-let roundtrip (type t ext) (module M : INTF with type t = t and type ext = ext)
-    shape v =
+let roundtrip (type t ext)
+    (module M : BACKEND with type t = t and type ext = ext) shape v =
   match Facade.decode (module M) shape (Facade.encode (module M) shape v) with
   | Validate.Valid v' -> v'
   | Validate.Invalid es ->
@@ -10,7 +10,8 @@ let roundtrip (type t ext) (module M : INTF with type t = t and type ext = ext)
         (Format.asprintf "decode failed: %a" (Format.pp_print_list Error.pp) es)
 
 let expect_one_error_message (type t ext)
-    (module M : INTF with type t = t and type ext = ext) shape input expected =
+    (module M : BACKEND with type t = t and type ext = ext) shape input expected
+    =
   match Facade.decode (module M) shape input with
   | Validate.Invalid [ { Error.message; _ } ] ->
       assert_equal ~printer:Fun.id expected message
@@ -134,6 +135,32 @@ let test_wrong_type_msgpck _ =
     (module Facade_msgpck)
     Shape.int (Msgpck.String "oops") "expected integer"
 
+let printer_int_opt_opt = function
+  | None -> "None"
+  | Some None -> "Some None"
+  | Some (Some n) -> "Some (Some " ^ string_of_int n ^ ")"
+
+let test_nested_option'_roundtrip_yojson _ =
+  let shape = Shape.(option' (option' int)) in
+  let rt v = roundtrip (module Facade_yojson) shape v in
+  assert_equal ~printer:printer_int_opt_opt None (rt None);
+  assert_equal ~printer:printer_int_opt_opt (Some None) (rt (Some None));
+  assert_equal ~printer:printer_int_opt_opt (Some (Some 5)) (rt (Some (Some 5)))
+
+let test_nested_option'_roundtrip_msgpck _ =
+  let shape = Shape.(option' (option' int)) in
+  let rt v = roundtrip (module Facade_msgpck) shape v in
+  assert_equal ~printer:printer_int_opt_opt None (rt None);
+  assert_equal ~printer:printer_int_opt_opt (Some None) (rt (Some None));
+  assert_equal ~printer:printer_int_opt_opt (Some (Some 5)) (rt (Some (Some 5)))
+
+(* Sanity check: plain [option] still collapses [Some None] to [None]. If this
+   ever starts passing as [Some None], the contrast with [option'] is gone. *)
+let test_nested_option_collapses_yojson _ =
+  let shape = Shape.(option (option int)) in
+  assert_equal ~printer:printer_int_opt_opt None
+    (roundtrip (module Facade_yojson) shape (Some None))
+
 let () =
   run_test_tt_main
     ("facade-intf"
@@ -172,5 +199,14 @@ let () =
                   >:: test_duplicate_mixed_field_rejected;
                   "wrong type / yojson" >:: test_wrong_type_yojson;
                   "wrong type / msgpck" >:: test_wrong_type_msgpck;
+                ];
+           "nested option disambiguation"
+           >::: [
+                  "option' (option' int) / yojson"
+                  >:: test_nested_option'_roundtrip_yojson;
+                  "option' (option' int) / msgpck"
+                  >:: test_nested_option'_roundtrip_msgpck;
+                  "option (option int) collapses Some None"
+                  >:: test_nested_option_collapses_yojson;
                 ];
          ])

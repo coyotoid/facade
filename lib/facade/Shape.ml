@@ -5,8 +5,37 @@ module type ENUM = sig
   val to_string : t -> string
 end
 
+type field_kind = Required | Optional | Default
+
+type desc =
+  | Null
+  | Bool
+  | Int
+  | Int64
+  | Float
+  | String
+  | Option of desc
+  | List of desc
+  | Map of desc
+  | Pair of desc * desc
+  | Enum of string list
+  | Record of field_desc list
+  | Named of string * desc
+  | Custom of string option
+  | Mu of string * desc
+  | Var of string
+
+and field_desc = { name : string; kind : field_kind; desc : desc }
+
 type 'a field = Error.path -> 'a Validate.t
-type ('a, 'ext) t = { enc : 'a -> 'ext Repr.t; dec : 'ext Repr.t -> 'a field }
+
+type ('a, 'ext) t = {
+  enc : 'a -> 'ext Repr.t;
+  dec : 'ext Repr.t -> 'a field;
+  desc : desc;
+}
+
+let describe s = s.desc
 
 let return x = fun _ -> Validate.pure x
 let fail message = fun path -> Validate.error { Error.path; message }
@@ -44,12 +73,14 @@ let null =
   {
     enc = (fun () -> Null);
     dec = (function Null -> return () | _ -> fail "expected null");
+    desc = Null;
   }
 
 let bool =
   {
     enc = (fun b -> Bool b);
     dec = (function Bool b -> return b | _ -> fail "expected boolean");
+    desc = Bool;
   }
 
 let int =
@@ -59,24 +90,28 @@ let int =
       (function
       | Int i -> return (Int64.to_int i)
       | _ -> fail "expected integer");
+    desc = Int;
   }
 
 let int64 =
   {
     enc = (fun i -> Int i);
     dec = (function Int i -> return i | _ -> fail "expected 64-bit integer");
+    desc = Int64;
   }
 
 let float =
   {
     enc = (fun f -> Float f);
     dec = (function Float f -> return f | _ -> fail "expected float");
+    desc = Float;
   }
 
 let string =
   {
     enc = (fun s -> String s);
     dec = (function String s -> return s | _ -> fail "expected string");
+    desc = String;
   }
 
 let option shape =
@@ -88,7 +123,31 @@ let option shape =
       | repr ->
           let* x = shape.dec repr in
           return @@ Some x);
+    desc = Option shape.desc;
   }
+
+let rec emits_null = function
+  | Null | Option _ -> true
+  | Named (_, d) | Mu (_, d) -> emits_null d
+  | Custom _ | Var _ -> true
+  | Bool | Int | Int64 | Float | String | List _ | Map _ | Pair _ | Enum _
+  | Record _ ->
+      false
+
+let option' shape =
+  if not (emits_null shape.desc) then option shape
+  else
+    {
+      enc = (function None -> Null | Some x -> List [ shape.enc x ]);
+      dec =
+        (function
+        | Null -> return None
+        | List [ r ] ->
+            let* x = shape.dec r in
+            return (Some x)
+        | _ -> fail "expected null or single-element list");
+      desc = Option shape.desc;
+    }
 
 let collect_results ms path =
   List.fold_left
@@ -111,6 +170,7 @@ let list shape =
           List.mapi (fun i x -> at (Error.Index i) (shape.dec x)) xs
           |> collect_results
       | _ -> fail "expected list");
+    desc = List shape.desc;
   }
 
 let object' shape =
@@ -127,6 +187,7 @@ let object' shape =
             fields
           |> collect_results
       | _ -> fail "expected object");
+    desc = Map shape.desc;
   }
 
 let pair ca cb =
@@ -140,27 +201,33 @@ let pair ca cb =
           (a, b)
       | Repr.List _ -> fail "expected list of length 2"
       | _ -> fail "expected list");
+    desc = Pair (ca.desc, cb.desc);
   }
 
-let validate f shape =
-  {
-    enc = shape.enc;
-    dec =
-      (fun repr ->
-        let* x = shape.dec repr in
-        fun path ->
-          match f x with
-          | Ok () -> Validate.valid x
-          | Error msg -> Validate.error { Error.path; message = msg });
-  }
+let validate ?name f shape =
+  let dec repr =
+    let* x = shape.dec repr in
+    fun path ->
+      match f x with
+      | Ok () -> Validate.valid x
+      | Error msg -> Validate.error { Error.path; message = msg }
+  in
+  let desc =
+    match name with Some n -> Named (n, shape.desc) | None -> shape.desc
+  in
+  { enc = shape.enc; dec; desc }
 
-let bimap ef df shape =
+let bimap ?name ef df shape =
+  let desc =
+    match name with Some n -> Named (n, shape.desc) | None -> shape.desc
+  in
   {
     enc = (fun x -> shape.enc (ef x));
     dec =
       (fun repr ->
         let+ x = shape.dec repr in
         df x);
+    desc;
   }
 
 let conv = bimap
@@ -211,24 +278,52 @@ let enum (type a) (module E : ENUM with type t = a) : (a, _) t =
           | Some v -> return v
           | None -> fail valid)
       | _ -> fail valid);
+    desc = Enum strings;
   }
 
 let defer lz =
   {
     enc = (fun x -> (Lazy.force lz).enc x);
     dec = (fun r -> (Lazy.force lz).dec r);
+    desc = (Lazy.force lz).desc;
   }
 
-let rec' f =
-  let rec lz = lazy (f (defer lz)) in
-  Lazy.force lz
+let rec_counter = ref 0
 
-let custom ~encode ~decode = { enc = encode; dec = decode }
+let fresh_rec_name () =
+  let n = !rec_counter in
+  incr rec_counter;
+  "t" ^ string_of_int n
+
+let rec' ?name f =
+  let n = match name with Some n -> n | None -> fresh_rec_name () in
+  let rec lz =
+    lazy
+      (f
+         {
+           enc = (fun x -> (Lazy.force lz).enc x);
+           dec = (fun r -> (Lazy.force lz).dec r);
+           desc = Var n;
+         })
+  in
+  let body = Lazy.force lz in
+  { body with desc = Mu (n, body.desc) }
+
+let custom ?name ?desc ~encode ~decode () =
+  let d =
+    match (name, desc) with
+    | Some n, Some d -> Named (n, d)
+    | None, Some d -> d
+    | Some n, None -> Custom (Some n)
+    | None, None -> Custom None
+  in
+  { enc = encode; dec = decode; desc = d }
 
 type ('cons, 'record, 'ext) builder = {
   dec_fields : (string * 'ext Repr.t) list -> 'cons field;
   enc_fields : 'record -> (string * 'ext Repr.t) list;
   names : string list;
+  field_descs : field_desc list;
 }
 
 let record cons =
@@ -236,6 +331,7 @@ let record cons =
     dec_fields = (fun _ -> return cons);
     enc_fields = (fun _ -> []);
     names = [];
+    field_descs = [];
   }
 
 let add_field_name name b =
@@ -252,6 +348,8 @@ let required name shape get b =
     enc_fields =
       (fun record -> (name, shape.enc (get record)) :: b.enc_fields record);
     names = add_field_name name b;
+    field_descs =
+      { name; kind = Required; desc = shape.desc } :: b.field_descs;
   }
 
 let optional name shape get b =
@@ -267,6 +365,8 @@ let optional name shape get b =
         | None -> b.enc_fields record
         | Some v -> (name, shape.enc v) :: b.enc_fields record);
     names = add_field_name name b;
+    field_descs =
+      { name; kind = Optional; desc = shape.desc } :: b.field_descs;
   }
 
 let default name shape default get b =
@@ -279,6 +379,8 @@ let default name shape default get b =
     enc_fields =
       (fun record -> (name, shape.enc (get record)) :: b.enc_fields record);
     names = add_field_name name b;
+    field_descs =
+      { name; kind = Default; desc = shape.desc } :: b.field_descs;
   }
 
 let seal b =
@@ -288,4 +390,5 @@ let seal b =
       (function
       | Repr.Object fields -> b.dec_fields fields
       | _ -> fail "expected object");
+    desc = Record (List.rev b.field_descs);
   }

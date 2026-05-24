@@ -49,6 +49,44 @@ val decode : ('a, 'ext) t -> 'ext Repr.t -> 'a Validate.t
 (** [decode shape repr] returns [Valid x] or an [Invalid] list of errors with
     paths. *)
 
+(** {1 Introspection} *)
+
+type field_kind =
+  | Required
+  | Optional  (** absent on decode ↔ [None] *)
+  | Default  (** absent on decode ↔ default value; always re-encoded *)
+
+type desc =
+  | Null
+  | Bool
+  | Int
+  | Int64
+  | Float
+  | String
+  | Option of desc
+  | List of desc
+  | Map of desc  (** Homogeneous string-keyed map (from {!object'}). *)
+  | Pair of desc * desc
+  | Enum of string list
+  | Record of field_desc list
+  | Named of string * desc
+      (** A labeled refinement / newtype wrapper around an inner description
+          (from {!val-validate}, {!bimap}, {!conv}, or {!custom} with [?name]).
+      *)
+  | Custom of string option
+      (** An opaque shape produced by {!custom} without an explicit description.
+          The optional string is a user-supplied label. *)
+  | Mu of string * desc
+      (** Binds [name] in [desc] for recursive references (from {!rec'}). *)
+  | Var of string  (** A back-reference to an enclosing {!Mu}. *)
+
+and field_desc = { name : string; kind : field_kind; desc : desc }
+
+val describe : ('a, 'ext) t -> desc
+(** [describe shape] returns the structural description of [shape]. The
+    description carries no backend-specific information, so it can be inspected
+    or serialized to a schema independently of the wire format. *)
+
 (** {1 Primitive shapes} *)
 
 val null : (unit, _) t
@@ -67,8 +105,33 @@ val string : (string, _) t
 (** {1 Combinators} *)
 
 val option : ('a, 'ext) t -> ('a option, 'ext) t
-(** Encodes [None] as [Null]. As a consequence, [option null] cannot distinguish
-    [Some ()] from [None]. *)
+(** Encodes [None] as [Null] and [Some x] as the encoding of [x]. Fast and
+    compact, but loses information when the inner shape can itself emit [Null]:
+    [option (option int)] cannot distinguish [Some None] from [None], and
+    [option null] cannot distinguish [Some ()] from [None]. Use {!option'} when
+    that matters. *)
+
+val option' : ('a, 'ext) t -> ('a option, 'ext) t
+(** Like {!option}, but unambiguous for nested options and other inner shapes
+    that may encode as [Null]. When the inner shape cannot produce [Null]
+    (primitives, [list], records, etc.) the wire format is identical to
+    {!option}. When it can, [Some x] is wrapped as a single-element list
+    [\[enc x\]] instead, so [None] ([Null]) and [Some _] ([List \[_\]]) are
+    distinct.
+
+    Examples (wire format):
+    - [option' int]: same as [option int].
+    - [option' (option' int)]: [None → Null], [Some None → \[Null\]],
+      [Some (Some 5) → \[\[5\]\]].
+    - [option' null]: [None → Null], [Some () → \[Null\]].
+
+    Inner shapes constructed with {!custom}, {!rec'}, or referencing an
+    enclosing {!Mu} via {!Var} are treated conservatively (always wrapped),
+    since their encoder is opaque to the introspector.
+
+    The {!type-desc} returned by {!describe} is identical for [option] and
+    [option']: [Option inner]. Consumers that care about the wire distinction
+    must remember which combinator they used. *)
 
 val list : ('a, 'ext) t -> ('a list, 'ext) t
 
@@ -86,24 +149,28 @@ val enum : (module ENUM with type t = 'a) -> ('a, _) t
 
 val defer : ('a, 'ext) t Lazy.t -> ('a, 'ext) t
 (** Wrap a [Lazy.t] shape so it can be embedded in other combinators before
-    being forced. *)
+    being forced. The shape's {!type-desc} forces the lazy when accessed, so
+    [defer] is only safe outside a cycle. For self-referential shapes use
+    {!rec'}. *)
 
-val rec' : (('a, 'ext) t -> ('a, 'ext) t) -> ('a, 'ext) t
-(** Tie a recursive knot for self-referential shapes.
+val rec' : ?name:string -> (('a, 'ext) t -> ('a, 'ext) t) -> ('a, 'ext) t
+(** Tie a recursive knot for self-referential shapes. The {!type-desc} of the
+    returned shape is [Mu (name, body)] and the back-edge passed to [f] has
+    description [Var name]. If [name] is omitted a fresh one is generated. *)
 
-    Equivalent to a [let rec ... = lazy ...] + {!defer}; use {!defer} directly
-    for mutually recursive shapes. *)
-
-val validate : ('a -> (unit, string) result) -> ('a, 'b) t -> ('a, 'b) t
+val validate :
+  ?name:string -> ('a -> (unit, string) result) -> ('a, 'b) t -> ('a, 'b) t
 (** Run an extra predicate after a successful decode. An [Error msg] becomes a
-    decode error at the current path; encoding is unaffected. *)
+    decode error at the current path; encoding is unaffected. If [?name] is
+    supplied the shape's description is wrapped in [Named (name, _)]. *)
 
-val bimap : ('a -> 'b) -> ('b -> 'a) -> ('b, 'c) t -> ('a, 'c) t
-(** [bimap f g shape] adapts a shape over ['b] into one over ['a]: [f] is
+val bimap : ?name:string -> ('a -> 'b) -> ('b -> 'a) -> ('b, 'c) t -> ('a, 'c) t
+(** [bimap ?name f g shape] adapts a shape over ['b] into one over ['a]: [f] is
     applied on decode, [g] on encode. Useful for newtype wrappers and small
-    representation changes. *)
+    representation changes. If [?name] is supplied the description is wrapped in
+    [Named (name, _)]. *)
 
-val conv : ('a -> 'b) -> ('b -> 'a) -> ('b, 'c) t -> ('a, 'c) t
+val conv : ?name:string -> ('a -> 'b) -> ('b -> 'a) -> ('b, 'c) t -> ('a, 'c) t
 (** Alias for {!bimap}. *)
 
 (** {1 Custom shapes and low-level object primitives} *)
@@ -118,8 +185,16 @@ val field_opt : string -> ('a, 'ext) t -> 'ext Repr.t -> 'a option field
     [repr] is not a {!Repr.Object}. *)
 
 val custom :
-  encode:('a -> 'ext Repr.t) -> decode:('ext Repr.t -> 'a field) -> ('a, 'ext) t
-(** Build a shape from an explicit encoder/decoder pair. *)
+  ?name:string ->
+  ?desc:desc ->
+  encode:('a -> 'ext Repr.t) ->
+  decode:('ext Repr.t -> 'a field) ->
+  unit ->
+  ('a, 'ext) t
+(** Build a shape from an explicit encoder/decoder pair. [?field-desc] and
+    [?name] supply a structural description; without [?field-desc] the shape
+    introspects as [Custom (Some name)] or [Custom None]. With both, the result
+    is [Named (name, desc)]. *)
 
 (** {1 Record builder} *)
 
